@@ -12,7 +12,7 @@ metaphor 0.12 で本体から分離されました（[ADR-0014](https://github.c
 // Package.swift
 dependencies: [
     .package(url: "https://github.com/shinyaoguri/metaphor.git", from: "0.12.0"),
-    .package(url: "https://github.com/shinyaoguri/metaphor-syphon.git", from: "0.1.0"),
+    .package(url: "https://github.com/shinyaoguri/metaphor-syphon.git", from: "0.1.1"),
 ],
 targets: [
     .executableTarget(

@@ -32,7 +32,7 @@ public enum MetaphorSyphon {
     /// このパッケージのリリース版（`release.yml` が毎リリースで書き換える）。
     ///
     /// 依存している metaphor 本体の版は `MetaphorVersion` を見る。
-    public static let version = "0.1.0"
+    public static let version = "0.1.1"
 
     /// Explicitly registers the Syphon output provider.
     ///

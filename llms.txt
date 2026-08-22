@@ -10,7 +10,7 @@ This file is the AI-facing API reference for the package (metaphor's own `llms.t
 // Package.swift
 dependencies: [
     .package(url: "https://github.com/shinyaoguri/metaphor.git", from: "0.12.0"),
-    .package(url: "https://github.com/shinyaoguri/metaphor-syphon.git", from: "0.1.0"),
+    .package(url: "https://github.com/shinyaoguri/metaphor-syphon.git", from: "0.1.1"),
 ],
 targets: [
     .executableTarget(
