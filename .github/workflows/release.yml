@@ -225,7 +225,8 @@ jobs:
             echo
             echo "Checksum (SHA256): \`${CHECKSUM}\`"
             echo
-            echo "Requires metaphor $(sed -n 's/.*metaphor\.git", from: "\([^"]*\)".*/\1/p' Package.swift | head -1)+."
+            # `from: "x"` でも `"x"..<"y"` でも、url の直後に来る最初のバージョン文字列が下限。
+            echo "Requires metaphor $(sed -n 's/.*metaphor\.git", *\(from: *\)\{0,1\}"\([^"]*\)".*/\2/p' Package.swift | head -1)+."
             echo
           } > "$BODY"
           echo "RELEASE_BODY_PATH=$BODY" >> "$GITHUB_ENV"

@@ -75,7 +75,7 @@ metaphor 0.12 で `SketchConfig` / `SketchWindowConfig` の Syphon フィール�
 
 - macOS 14.0+ / Apple Silicon（metaphor と同じ）
 - Swift 5.10+（Xcode 15.4+）
-- metaphor **0.12.0 以上**（`.package(..., from: "0.12.0")`）
+- metaphor **0.12.x**（`Package.swift` は `"0.12.0"..<"0.13.0"` で上限を切っています。本体の minor が出るたびに metaphor-syphon も追随リリースして上限を上げます — 旧 `syphonName:` 等を読む移行期間が終わる本体 0.13 以降は `from:` に戻す予定）
 
 Syphon.framework はこのリポジトリの Release に `Syphon.xcframework.zip` として添付され、`Package.swift` の `binaryTarget` がそれを指します。SwiftPM が `Package.swift` の checksum と照合するので、手で取ってくるものはありません。
 
