@@ -1,0 +1,168 @@
+# PR CI。検査の実体は scripts/ と Makefile にあり、ローカルでも同じものを実行できる。
+#
+# ジョブ構成:
+#   validate            (ubuntu) actionlint + shellcheck + Python テスト + binaryTarget pin の実在確認
+#   pr-policy           (ubuntu) PR タイトルの Conventional Commits lint
+#   build-and-test      (macos-26) submodule から焼いた Syphon.xcframework で build + test（-warnings-as-errors）
+#   registration-matrix (macos-26) 別パッケージの consumer から debug / release で自動登録を実行確認
+#   build-swift-5-10    (macos-14) 最小サポート Xcode 15.4 でビルドだけ
+#   ci-gate             (ubuntu) 集約ゲート。ruleset の必須チェックはこれ 1 本
+name: CI
+
+on:
+  pull_request:
+    # edited も対象: pr-policy は PR タイトルを検査するので、タイトル編集でも再検査が要る
+    types: [opened, synchronize, reopened, edited]
+  push:
+    branches: [main]
+  # release.yml が release/<tag> ブランチで CI を起こすため（GITHUB_TOKEN が開いた PR は
+  # pull_request を発火しないが、workflow_dispatch はその制限の対象外）。
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: workflow とシェルスクリプトの静的検査 + Python テスト
+        run: ./scripts/verify.sh
+      # release/<tag> ブランチは Release 作成前に self-pin を書くので asset がまだ無い。
+      # そこでは release.yml 自身が公開後に検証する（Verify published Syphon asset）。
+      - name: binaryTarget pin が実在する asset と一致する
+        if: "!startsWith(github.head_ref || github.ref_name, 'release/')"
+        run: ./scripts/check-syphon-pin.sh
+
+  pr-policy:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      PR_TITLE: ${{ github.event.pull_request.title }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: PR タイトルの Conventional Commits lint
+        run: ./scripts/check-pr-title.sh
+
+  build-and-test:
+    runs-on: macos-26
+    # 通常 5 分前後（Syphon キャッシュミス時でも 15 分以内）。ハングした場合の既定値は
+    # 6 時間で、macOS ランナーは 10 倍課金なので上限を明示する。
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_26.4.app
+      - name: Get Syphon submodule hash
+        id: syphon-hash
+        run: echo "hash=$(git submodule status Vendor/Syphon-Framework | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+      # ビルド環境（Xcode 版）をキーに含める。ランナー/Xcode が異なる workflow 間で
+      # 同一キーのキャッシュを共有すると ABI/SDK 差異を拾い得るため。
+      - name: Get Xcode version
+        id: xcode-version
+        run: echo "version=$(xcodebuild -version | head -1 | tr ' ' '-')" >> "$GITHUB_OUTPUT"
+      - name: Cache Syphon.xcframework
+        id: cache-syphon
+        uses: actions/cache@v6
+        with:
+          path: Frameworks/Syphon.xcframework
+          key: syphon-xcframework-${{ steps.syphon-hash.outputs.hash }}-${{ hashFiles('scripts/build-syphon.sh') }}-${{ steps.xcode-version.outputs.version }}
+      # ここで焼いた Frameworks/Syphon.xcframework を Package.swift が優先する = submodule の
+      # 更新がそのままテストされる。Release asset 側は validate の check-syphon-pin.sh が見る。
+      - name: Build Syphon.xcframework
+        if: steps.cache-syphon.outputs.cache-hit != 'true'
+        run: ./scripts/build-syphon.sh
+      - name: Build and test (CI strictness)
+        run: make ci-check
+
+  registration-matrix:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_26.4.app
+      # Frameworks/ を作らない = consumer と同じく Release asset の pin で resolve する。
+      # release/<tag> ブランチでは asset がまだ無いので、そこだけ submodule から焼く。
+      - name: Checkout submodule (release branch only)
+        if: startsWith(github.ref_name, 'release/')
+        run: git submodule update --init --recursive
+      - name: Build Syphon.xcframework (release branch only)
+        if: startsWith(github.ref_name, 'release/')
+        run: ./scripts/build-syphon.sh
+      - name: Provider auto-registration from a separate package (debug + release)
+        run: ./scripts/check-registration.sh
+
+  # 最小サポート = Xcode 15.4（Swift 5.10）。macos-14 ランナーには GPU が無いので
+  # ビルドのみ（metaphor#332 と同じ判断）。
+  build-swift-5-10:
+    runs-on: macos-14
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+      - name: Checkout submodule (release branch only)
+        if: startsWith(github.ref_name, 'release/')
+        run: git submodule update --init --recursive
+      - name: Build Syphon.xcframework (release branch only)
+        if: startsWith(github.ref_name, 'release/')
+        run: ./scripts/build-syphon.sh
+      - name: Build
+        run: swift build -Xswiftc -warnings-as-errors
+
+  ci-gate:
+    needs: [validate, pr-policy, build-and-test, registration-matrix, build-swift-5-10]
+    # 既定では upstream の失敗時にこのジョブごと skip されてしまい、legacy status
+    # 評価では「報告なし = 永久 pending」になる。always() で必ず走らせ、結果は
+    # 下のステップで needs.*.result から自前で判定する。
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      statuses: write   # legacy status ブリッジ（下）のため
+    steps:
+      - name: Require every upstream job to be success or skipped
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          set -eu
+          echo "$NEEDS_JSON"
+          bad=$(printf '%s' "$NEEDS_JSON" \
+            | jq -r 'to_entries[]
+                     | select(.value.result != "success" and .value.result != "skipped")
+                     | .key' \
+            | tr '\n' ' ')
+          if [ -n "${bad% }" ]; then
+            echo "::error::Upstream job(s) failed or were cancelled: ${bad}"
+            exit 1
+          fi
+          echo "OK: every upstream job succeeded or was skipped."
+      - name: Bridge to legacy status (workflow_dispatch)
+        # 個人リポの ruleset は required_status_checks を legacy Statuses API で評価する。
+        # pull_request 実行は通常経路で満たすが、workflow_dispatch（release ブランチ）は
+        # check_run しか作らないので、green をコミットの status として写す。
+        # 前ステップが fail したらこのステップは走らない（暗黙の success()）。
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state=success \
+            -f context=ci-gate \
+            -f description="CI passed via ${{ github.event_name }} run"

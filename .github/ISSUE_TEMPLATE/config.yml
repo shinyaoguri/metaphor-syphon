@@ -1,0 +1,16 @@
+blank_issues_enabled: true
+contact_links:
+  - name: metaphor issue (the library itself — rendering, Sketch API, plugin lifecycle)
+    url: https://github.com/shinyaoguri/metaphor/issues/new/choose
+    about: >-
+      Problems with the metaphor library itself (drawing, the Sketch API,
+      the MetaphorPlugin / MetaphorOutputProvider lifecycle, Probe / Parameter
+      Store) belong in the metaphor repository. This repository only hosts the
+      Syphon output plugin.
+  - name: metaphor-cli issue (run --syphon / watch --syphon, the syphon template, installation)
+    url: https://github.com/shinyaoguri/metaphor-cli/issues/new/choose
+    about: >-
+      Problems with the `metaphor` command (new / run / watch / mcp), its
+      --syphon flags, the `syphon` project template, or installation
+      (Homebrew) belong in the metaphor-cli repository. If you're unsure
+      which repo, it's fine to file here instead and we'll route it.

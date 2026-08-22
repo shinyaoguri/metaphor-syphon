@@ -1,0 +1,68 @@
+# 本体 metaphor の main との組合せビルド。
+#
+# PR CI は Release タグ（from: "0.12.0" を満たす最新）に対して検証するので、本体 main に
+# 入った provider / plugin API の変更はリリースされるまで見えない。ここで毎晩 main に差し替えて
+# build + test し、赤くなったら Issue を 1 本立てる（同じタイトルが open なら更新）。
+name: Nightly (metaphor main)
+
+on:
+  schedule:
+    - cron: '0 18 * * *'   # 03:00 JST
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  against-main:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_26.4.app
+      - name: Get Syphon submodule hash
+        id: syphon-hash
+        run: echo "hash=$(git submodule status Vendor/Syphon-Framework | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+      - name: Get Xcode version
+        id: xcode-version
+        run: echo "version=$(xcodebuild -version | head -1 | tr ' ' '-')" >> "$GITHUB_OUTPUT"
+      - name: Cache Syphon.xcframework
+        id: cache-syphon
+        uses: actions/cache@v6
+        with:
+          path: Frameworks/Syphon.xcframework
+          key: syphon-xcframework-${{ steps.syphon-hash.outputs.hash }}-${{ hashFiles('scripts/build-syphon.sh') }}-${{ steps.xcode-version.outputs.version }}
+      - name: Build Syphon.xcframework
+        if: steps.cache-syphon.outputs.cache-hit != 'true'
+        run: ./scripts/build-syphon.sh
+      - name: Point the metaphor dependency at main
+        run: |
+          set -euo pipefail
+          sed -i '' 's|\.package(url: "https://github.com/shinyaoguri/metaphor.git", from: "[^"]*")|.package(url: "https://github.com/shinyaoguri/metaphor.git", branch: "main")|' Package.swift
+          grep -n 'metaphor.git", branch: "main"' Package.swift
+      - name: Build and test against metaphor main
+        id: build
+        run: make ci-check
+      - name: Open or update a tracking issue on failure
+        if: failure() && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TITLE="nightly: metaphor main との組合せビルドが赤い"
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          BODY=$(printf '%s\n\n- %s\n- %s\n' \
+            "本体 metaphor の main に対する build / test が失敗しました。provider / plugin API の変更に追随する PR が要るかもしれません。" \
+            "実行: ${RUN_URL}" \
+            "対応後もこの Issue は自動では閉じません。直ったら閉じてください。")
+          EXISTING=$(gh issue list --state open --search "\"$TITLE\" in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "再び失敗: ${RUN_URL}"
+          else
+            gh issue create --title "$TITLE" --body "$BODY" --label "type: bug"
+          fi

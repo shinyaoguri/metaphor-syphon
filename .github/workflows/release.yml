@@ -1,0 +1,382 @@
+# Release: Syphon.xcframework を焼き、self-pin の署名コミットを release/<tag> に積み、
+# PR → CI → squash merge → tag → Release（asset 付き）→ 公開 asset の検証。
+# 手順の説明と守ることは docs/releasing.md。metaphor v0.11.0 の release.yml から
+# Syphon 節を移植し、本体固有の部分（CHANGELOG・examples smoke・cli への dispatch）を外したもの。
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump type'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - prerelease   # increment N in vX.Y.Z-LABEL.N (latest tag must be a prerelease)
+      prerelease_label:
+        description: 'Pre-release label (beta, rc, alpha). Empty = stable. Ignored when bump=prerelease.'
+        required: false
+        type: string
+        default: ''
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+# 同時に 2 本走ると同じ latest tag から同じ TAG_NAME / release/<tag> を計算して衝突する。
+# 直列化する（後着はキャンセルせずキュー）。
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write    # required to dispatch CI workflow on the release branch
+  statuses: write   # required to bridge check_runs → legacy Status for the ruleset
+
+jobs:
+  release:
+    # macos-14 = 最小サポート Xcode 15.4 で焼く（asset を受け取る側の最小環境に合わせる）。
+    runs-on: macos-14
+    timeout-minutes: 90
+    steps:
+      # GITHUB_TOKEN-only flow:
+      #
+      # - GITHUB_TOKEN cannot bypass branch protection on personal repos.
+      # - GITHUB_TOKEN-created PRs do NOT trigger pull_request workflows
+      #   (recursion guard), but workflow_dispatch IS exempt from that guard.
+      # - So we open the release PR with GITHUB_TOKEN, kick CI explicitly via
+      #   `gh workflow run ci.yml --ref <release-branch>`, wait for green,
+      #   merge through the standard PR API, then tag.
+      #
+      # No PAT, no ruleset bypass-actor games.
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+      # --- Syphon build ---
+      - name: Get Syphon submodule hash
+        id: syphon-hash
+        run: echo "hash=$(git submodule status Vendor/Syphon-Framework | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      # release は macos-14 + デフォルト Xcode、CI は macos-26 + Xcode 26.4。
+      # キーに Xcode 版を含め、環境違いのキャッシュ共有を防ぐ
+      - name: Get Xcode version
+        id: xcode-version
+        run: echo "version=$(xcodebuild -version | head -1 | tr ' ' '-')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Syphon.xcframework
+        id: cache-syphon
+        uses: actions/cache@v6
+        with:
+          path: Frameworks/Syphon.xcframework
+          key: syphon-xcframework-${{ steps.syphon-hash.outputs.hash }}-${{ hashFiles('scripts/build-syphon.sh') }}-${{ steps.xcode-version.outputs.version }}
+
+      - name: Build Syphon.xcframework
+        if: steps.cache-syphon.outputs.cache-hit != 'true'
+        run: ./scripts/build-syphon.sh
+
+      - name: Create ZIP and checksum
+        run: |
+          cd Frameworks
+          zip -r Syphon.xcframework.zip Syphon.xcframework
+          shasum -a 256 Syphon.xcframework.zip > checksum.txt
+          echo "CHECKSUM=$(awk '{print $1}' checksum.txt)" >> "$GITHUB_ENV"
+
+      # --- Compute next version ---
+      - name: Compute next version
+        run: |
+          set -euo pipefail
+          BUMP="${{ github.event.inputs.bump }}"
+          LABEL="${{ github.event.inputs.prerelease_label }}"
+
+          if [ "$BUMP" = "prerelease" ]; then
+            # Pick the highest prerelease tag by version order. `git describe`
+            # returns the topologically nearest tag, which can be a stable tag
+            # (or the wrong cycle) once stable and prerelease tags interleave.
+            LATEST_PRE=$(git tag -l 'v*-*' | sort -V | tail -1 || true)
+            if [[ "$LATEST_PRE" =~ ^(v[0-9]+\.[0-9]+\.[0-9]+)-([a-zA-Z]+)\.([0-9]+)$ ]]; then
+              BASE="${BASH_REMATCH[1]}"
+              PRE_LABEL="${BASH_REMATCH[2]}"
+              N="${BASH_REMATCH[3]}"
+              if git rev-parse "$BASE" >/dev/null 2>&1; then
+                echo "::error::Prerelease cycle ${BASE}-${PRE_LABEL} already graduated to stable ${BASE}. Use bump=patch/minor/major with prerelease_label to start a new cycle."
+                exit 1
+              fi
+              TAG_NAME="${BASE}-${PRE_LABEL}.$((N + 1))"
+            else
+              echo "::error::bump=prerelease requires an existing prerelease tag (got '${LATEST_PRE:-none}'). Use bump=patch/minor/major with prerelease_label to start a new prerelease cycle."
+              exit 1
+            fi
+          else
+            # Find latest STABLE tag (no '-' suffix). sort -V handles version ordering.
+            LATEST_STABLE=$(git tag -l 'v*' | grep -v -- '-' | sort -V | tail -1 || true)
+            LATEST_STABLE=${LATEST_STABLE:-v0.0.0}
+            VERSION=${LATEST_STABLE#v}
+            IFS=. read -r MAJOR MINOR PATCH <<< "$VERSION"
+            case "$BUMP" in
+              major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+              minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+              patch) PATCH=$((PATCH + 1)) ;;
+            esac
+            TARGET="v${MAJOR}.${MINOR}.${PATCH}"
+
+            if [ -n "$LABEL" ]; then
+              # Find next free vTARGET-LABEL.N
+              N=1
+              while git rev-parse "${TARGET}-${LABEL}.${N}" >/dev/null 2>&1; do
+                N=$((N + 1))
+              done
+              TAG_NAME="${TARGET}-${LABEL}.${N}"
+            else
+              TAG_NAME="$TARGET"
+            fi
+          fi
+
+          echo "Computed tag: $TAG_NAME"
+          echo "TAG_NAME=$TAG_NAME" >> "$GITHUB_ENV"
+          echo "RELEASE_BRANCH=release/$TAG_NAME" >> "$GITHUB_ENV"
+          if [[ "$TAG_NAME" == *-* ]]; then
+            echo "IS_PRERELEASE=true" >> "$GITHUB_ENV"
+          else
+            echo "IS_PRERELEASE=false" >> "$GITHUB_ENV"
+          fi
+
+      # --- Push release branch with version-bump commit ---
+      - name: Push release branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Identity for the annotated tag later in this job. The release commit
+          # itself is NOT made with `git commit` — see the end of this step.
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # main's HEAD is an already-signed commit; the release branch starts
+          # there and the bump is layered on through the API.
+          BASE_SHA=$(git rev-parse HEAD)
+          git checkout -b "$RELEASE_BRANCH"
+          # Self-pin: point the binaryTarget at THIS repository's Release asset for
+          # the tag being cut (the very first release replaces the borrowed
+          # metaphor v0.11.0 pin — docs/decisions/0001), and write its checksum.
+          sed -i '' "s|url: \"https://github.com/[^\"]*/Syphon.xcframework.zip\"|url: \"https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG_NAME}/Syphon.xcframework.zip\"|" Package.swift
+          sed -i '' "s|checksum: \"[^\"]*\"|checksum: \"${CHECKSUM}\"|g" Package.swift
+          grep -n "releases/download/${TAG_NAME}/" Package.swift
+          # Bump the runtime version constant for EVERY release (stable and
+          # prerelease) so a running sketch can report its exact package version.
+          VERSION_NUM=${TAG_NAME#v}
+          sed -i '' "s|public static let version = \"[^\"]*\"|public static let version = \"${VERSION_NUM}\"|" \
+            Sources/MetaphorSyphon/MetaphorSyphon.swift
+          # Only stable versions appear in `from:` install snippets (README / llms.txt).
+          # Anchor on the dependency URL so nothing else is touched.
+          if [ "$IS_PRERELEASE" = "false" ]; then
+            sed -i '' "s|metaphor-syphon\.git\", from: \"[0-9][^\"]*\"|metaphor-syphon.git\", from: \"${VERSION_NUM}\"|g" \
+              README.md \
+              llms.txt
+          fi
+          # The exact file set the bump is allowed to touch. Scoping matters:
+          # unscoped, `git status` on a runner would also see build output that
+          # merely happens not to be ignored.
+          BUMP_PATHS=(
+            Package.swift
+            Sources/MetaphorSyphon/MetaphorSyphon.swift
+            README.md
+            llms.txt
+          )
+          if [ -z "$(git status --porcelain -- "${BUMP_PATHS[@]}")" ]; then
+            echo "::error::No version-bump diff produced."
+            exit 1
+          fi
+          # The commit goes through GitHub's API, not `git commit`: the ruleset
+          # requires signed commits and the runner has no signing key, so a pushed
+          # `git commit` is unsigned and the release PR then cannot be merged —
+          # after the Syphon build and a full CI run have already happened (that is
+          # how metaphor v0.9.0 failed). `createCommitOnBranch` commits are signed
+          # by GitHub itself, which satisfies the rule without a ruleset bypass.
+          git push origin "${BASE_SHA}:refs/heads/${RELEASE_BRANCH}"
+          PATH_ARGS=()
+          for bump_path in "${BUMP_PATHS[@]}"; do
+            PATH_ARGS+=(--path "$bump_path")
+          done
+          python3 scripts/signed-commit.py \
+            --repo "$GITHUB_REPOSITORY" \
+            --branch "$RELEASE_BRANCH" \
+            --expected-head "$BASE_SHA" \
+            --message "Release ${TAG_NAME}" \
+            "${PATH_ARGS[@]}"
+
+      # --- Release notes: checksum above GitHub's generated "What's Changed" ---
+      - name: Compose release notes
+        run: |
+          set -euo pipefail
+          BODY="$RUNNER_TEMP/release-body.md"
+          {
+            echo "## Syphon.xcframework"
+            echo
+            echo "Built from Syphon-Framework \`${{ steps.syphon-hash.outputs.hash }}\` (${{ steps.xcode-version.outputs.version }})."
+            echo
+            echo "Checksum (SHA256): \`${CHECKSUM}\`"
+            echo
+            echo "Requires metaphor $(sed -n 's/.*metaphor\.git", from: "\([^"]*\)".*/\1/p' Package.swift | head -1)+."
+            echo
+          } > "$BODY"
+          echo "RELEASE_BODY_PATH=$BODY" >> "$GITHUB_ENV"
+          echo "--- release body ---"
+          cat "$BODY"
+
+      # --- Open PR, kick CI manually, wait, merge ---
+      - name: Open PR to main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_URL=$(gh pr create \
+            --base main \
+            --head "$RELEASE_BRANCH" \
+            --title "Release ${TAG_NAME}" \
+            --body "Automated release commit for ${TAG_NAME}. Self-pins the Syphon.xcframework binary target to this release's asset and bumps MetaphorSyphon.version${{ env.IS_PRERELEASE == 'false' && ' and the install snippets (README.md, llms.txt)' || '' }}.")
+          echo "PR_NUMBER=${PR_URL##*/}" >> "$GITHUB_ENV"
+
+      - name: Trigger CI on release branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # GITHUB_TOKEN-created PRs do not fire the pull_request CI, but
+          # workflow_dispatch IS allowed to fire even from another workflow.
+          # Capture an ISO timestamp BEFORE the dispatch so we can later
+          # filter for the run we just kicked instead of accidentally
+          # picking up a prior completed run on a recycled branch name.
+          DISPATCH_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          echo "DISPATCH_AT=$DISPATCH_AT" >> "$GITHUB_ENV"
+          gh workflow run ci.yml --ref "$RELEASE_BRANCH"
+
+      - name: Wait for CI to register and complete
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Filter by created>=DISPATCH_AT so we never lock onto a stale
+          # historical run (release/<tag> branch names can be recycled).
+          deadline=$((SECONDS + 180))
+          RUN_ID=""
+          while [ $SECONDS -lt $deadline ]; do
+            RUN_ID=$(gh run list \
+              --workflow=ci.yml \
+              --branch "$RELEASE_BRANCH" \
+              --event workflow_dispatch \
+              --created ">=$DISPATCH_AT" \
+              --limit 1 \
+              --json databaseId \
+              --jq '.[0].databaseId // empty' 2>/dev/null || true)
+            if [ -n "$RUN_ID" ]; then
+              break
+            fi
+            sleep 5
+          done
+          if [ -z "$RUN_ID" ]; then
+            echo "::error::CI workflow_dispatch run did not register within 180s."
+            exit 1
+          fi
+          echo "Watching CI run $RUN_ID (dispatched at $DISPATCH_AT)..."
+          gh run watch "$RUN_ID" --exit-status
+
+      - name: Bridge CI to legacy Status for ruleset gate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Repository rulesets on personal repos evaluate the
+          # required_status_checks rule against the legacy Statuses API,
+          # NOT the modern Checks API. GitHub Actions reports its result
+          # only as a check_run, so the ruleset stays unsatisfied even
+          # though CI is green. Mirror our successful check_run as a
+          # status with the same context so the rule is satisfied.
+          # The required context is the aggregate gate `ci-gate`.
+          # ci.yml's own bridge step posts this too, but belt-and-suspenders:
+          # this workflow must not depend on the dispatched run's bridging.
+          PR_SHA=$(gh pr view "$PR_NUMBER" --json headRefOid --jq '.headRefOid')
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/statuses/${PR_SHA}" \
+            -f state=success \
+            -f context=ci-gate \
+            -f description="CI passed via workflow_dispatch run"
+
+      - name: Squash-merge release PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh pr merge "$PR_NUMBER" --squash --delete-branch
+
+      # --- Tag the merged commit on main ---
+      - name: Tag the merged commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Tag the squash commit this PR actually produced. Tagging the tip of
+          # main after a pull races with anything merged in the meantime — an
+          # unrelated commit could end up tagged as the release.
+          MERGE_SHA=$(gh pr view "$PR_NUMBER" --json mergeCommit --jq '.mergeCommit.oid')
+          if [ -z "$MERGE_SHA" ] || [ "$MERGE_SHA" = "null" ]; then
+            echo "::error::Could not resolve the merge commit for PR #${PR_NUMBER}."
+            exit 1
+          fi
+          git fetch origin main
+          git tag -a "$TAG_NAME" -m "Release $TAG_NAME" "$MERGE_SHA"
+          git push origin "$TAG_NAME"
+
+      # --- GitHub Release with binary artifacts ---
+      - name: Create Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ env.TAG_NAME }}
+          files: |
+            Frameworks/Syphon.xcframework.zip
+            Frameworks/checksum.txt
+          generate_release_notes: true
+          prerelease: ${{ env.IS_PRERELEASE == 'true' }}
+          # Written by "Compose release notes" above. action-gh-release prepends
+          # it to the generated "What's Changed" list.
+          body_path: ${{ env.RELEASE_BODY_PATH }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # --- Post-check: the published asset must actually resolve ---
+      # SwiftPM re-fetches binaryTarget(url:) on EVERY resolve, so a Release whose
+      # asset failed to upload is a tag that can never be consumed — and the tag
+      # is immutable (tag protection ruleset), so it cannot be quietly redone.
+      # Download what we just published and compare it against the checksum that
+      # was written into Package.swift.
+      - name: Verify published Syphon asset
+        run: |
+          set -euo pipefail
+          ASSET_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG_NAME}/Syphon.xcframework.zip"
+          DEST="$RUNNER_TEMP/published-Syphon.xcframework.zip"
+          # Asset availability right after publish is not instantaneous; retry.
+          # Track success explicitly — never infer it from the file on disk, or a
+          # leftover download would be checksummed as if it were the new asset.
+          DOWNLOADED=0
+          for attempt in 1 2 3 4 5; do
+            rm -f "$DEST"
+            if curl -sSL --fail -o "$DEST" "$ASSET_URL"; then
+              DOWNLOADED=1
+              break
+            fi
+            echo "Attempt ${attempt}: ${ASSET_URL} not downloadable yet — retrying in 10s."
+            sleep 10
+          done
+          if [ "$DOWNLOADED" -ne 1 ] || [ ! -s "$DEST" ]; then
+            echo "::error::Published asset is missing or empty: ${ASSET_URL}"
+            echo "          Re-upload it with: gh release upload ${TAG_NAME} Frameworks/Syphon.xcframework.zip --clobber"
+            exit 1
+          fi
+          PUBLISHED=$(shasum -a 256 "$DEST" | awk '{print $1}')
+          if [ "$PUBLISHED" != "$CHECKSUM" ]; then
+            echo "::error::Checksum mismatch for ${ASSET_URL} — Package.swift declares ${CHECKSUM}, published asset hashes to ${PUBLISHED}."
+            exit 1
+          fi
+          echo "Published asset verified: ${ASSET_URL} (sha256 ${PUBLISHED})"

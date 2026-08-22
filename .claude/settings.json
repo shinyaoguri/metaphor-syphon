@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(./scripts/verify.sh)",
+      "Bash(./scripts/check-pr-title.sh)",
+      "Bash(./scripts/check-registration.sh:*)",
+      "Bash(./scripts/check-syphon-pin.sh)",
+      "Bash(make build)",
+      "Bash(make test)",
+      "Bash(make ci-check)",
+      "Bash(make verify)",
+      "Bash(make check-registration)",
+      "Bash(make check-pin)",
+      "Bash(swift build:*)",
+      "Bash(swift test:*)",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git show:*)",
+      "Bash(git submodule status:*)",
+      "Bash(gh issue list:*)",
+      "Bash(gh issue view:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr diff:*)",
+      "Bash(gh pr checks:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)",
+      "Bash(gh release list:*)",
+      "Bash(gh release view:*)",
+      "Bash(gh label list:*)",
+      "Bash(gh repo view:*)"
+    ]
+  }
+}

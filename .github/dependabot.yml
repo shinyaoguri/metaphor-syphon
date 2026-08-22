@@ -1,0 +1,28 @@
+# 依存の更新追従。監視できるのは GitHub Actions と git submodule
+# (Vendor/Syphon-Framework)。SwiftPM は Dependabot の対象外なので、metaphor 本体への
+# 追随は nightly.yml（本体 main との組合せビルド）と手動 PR で行う。
+#
+# GitHub Actions は束ねない。1 PR = 1 アクションのまま (metaphor と同じ判断):
+# 束ねる利点 (PR 数と CI 実行回数の削減) より、壊れた 1 本を切り離せることを取る。
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+    # リリース公開から PR 起票までの待機。悪意あるリリースが取り下げられる猶予を
+    # 取る (security update には適用されず、脆弱性公表時は即座に PR が出る)。
+    cooldown:
+      default-days: 7
+  # Syphon-Framework の更新。マージすると次のリリースが新しい framework を焼く
+  # (docs/releasing.md)。CI の build-and-test が submodule から焼いて検証する。
+  - package-ecosystem: gitsubmodule
+    directory: /
+    schedule:
+      interval: monthly
+    labels:
+      - dependencies
+    cooldown:
+      default-days: 7

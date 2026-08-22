@@ -1,0 +1,55 @@
+name: Bug report
+description: Syphon output from a metaphor sketch isn't working as expected.
+title: "[bug] "
+labels:
+  - "type: bug"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Bugs in the metaphor library itself (drawing, the Sketch API, the
+        plugin lifecycle) belong in
+        [metaphor's issue tracker](https://github.com/shinyaoguri/metaphor/issues/new/choose);
+        the `metaphor run --syphon` / `watch --syphon` flags and the `syphon`
+        template belong in [metaphor-cli](https://github.com/shinyaoguri/metaphor-cli/issues/new/choose).
+        If you're not sure which repo, it's fine to file here and we'll route it.
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: metaphor-syphon and metaphor versions (from `Package.resolved` or a release tag).
+      placeholder: "metaphor-syphon 0.1.0 / metaphor 0.12.0"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: macOS version, chip, and Xcode / Swift version (metaphor is Apple Silicon only).
+      placeholder: "macOS 14.6 / M2 Pro / Xcode 15.4"
+    validations:
+      required: true
+  - type: input
+    id: client
+    attributes:
+      label: Syphon client
+      description: Which application receives the frames, and its version.
+      placeholder: "MadMapper 6.1 / Resolume Arena 7 / Syphon Simple Client"
+    validations:
+      required: true
+  - type: textarea
+    id: repro-steps
+    attributes:
+      label: Reproduction steps
+      description: |
+        How can we reproduce this? A minimal `Sketch` (the `SketchConfig` with
+        its `plugins:` line, or the `METAPHOR_SYPHON_NAME` / `--syphon` invocation) is ideal.
+    validations:
+      required: true
+  - type: textarea
+    id: expected-actual
+    attributes:
+      label: Expected vs actual behavior
+      description: Include error messages, console output (metaphor prints `[metaphor]` diagnostics), or screenshots of the client if relevant.
+    validations:
+      required: true

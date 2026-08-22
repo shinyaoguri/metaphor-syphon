@@ -1,0 +1,118 @@
+# metaphor-syphon
+
+> Syphon output for [metaphor](https://github.com/shinyaoguri/metaphor) sketches, as a separate SwiftPM package. Publishes the sketch's final frame as a Syphon server (MadMapper / Resolume / VDMX / TouchDesigner read it). metaphor ≥ 0.12.0, macOS 14+, Apple Silicon, Swift 5.10+.
+
+This file is the AI-facing API reference for the package (metaphor's own `llms.txt` covers the core API). The shapes below are the whole public surface; the package is intentionally small.
+
+## Setup
+
+```swift
+// Package.swift
+dependencies: [
+    .package(url: "https://github.com/shinyaoguri/metaphor.git", from: "0.12.0"),
+    .package(url: "https://github.com/shinyaoguri/metaphor-syphon.git", from: "0.1.0"),
+],
+targets: [
+    .executableTarget(
+        name: "MySketch",
+        dependencies: [
+            .product(name: "metaphor", package: "metaphor"),              // or "MetaphorCore"
+            .product(name: "MetaphorSyphon", package: "metaphor-syphon"),
+        ]
+    )
+]
+```
+
+```swift
+import metaphor          // or: import MetaphorCore
+import MetaphorSyphon    // linking this registers the Syphon output provider at load time
+
+@main
+final class MySketch: Sketch {
+    var config: SketchConfig {
+        SketchConfig(width: 1920, height: 1080, title: "Preview", plugins: [.syphon()])
+    }
+    func draw() { /* ... */ }
+}
+```
+
+## API
+
+### PluginFactory.syphon(name:) — declare the output
+
+```swift
+extension PluginFactory {
+    /// Syphon output. `name == nil` publishes under `SketchConfig.title`
+    /// (under the process name when used in `SketchWindowConfig.plugins`, which has no Sketch).
+    /// Declares `PluginRequirements.externalRenderLoop`: a `.displayLink` sketch switches to
+    /// timer-driven rendering so publishing continues while the window is hidden.
+    public static func syphon(name: String? = nil) -> PluginFactory
+}
+```
+
+Use it in `SketchConfig(plugins:)` for the primary sketch and in `SketchWindowConfig(plugins:)` for secondary windows (`createWindow(...)`); each window becomes its own server.
+
+### METAPHOR_SYPHON_NAME — enable without touching the sketch
+
+Any sketch that links `MetaphorSyphon` publishes under `$METAPHOR_SYPHON_NAME` when the variable is set and non-empty (`metaphor run --syphon[=name]` / `metaphor watch --syphon[=name]` set it for the child process). It is independent of `.syphon(name:)`: declaring both gives two servers.
+
+Precedence for the automatic (provider) server: `METAPHOR_SYPHON_NAME` > deprecated `SketchConfig.syphonName` > (deprecated `SketchConfig.syphon == true` ? `SketchConfig.title` : none). Secondary windows only honour the deprecated `SketchWindowConfig.syphonName`. Headless runs (`METAPHOR_VIEWER=1`) never publish implicitly.
+
+### MetaphorSyphon — module facade
+
+```swift
+public enum MetaphorSyphon {
+    /// This package's release version (e.g. "0.1.0").
+    public static let version: String
+    /// Registers the output provider explicitly. Normally unnecessary (a C constructor
+    /// registers it at load); idempotent (same provider id → replaced, not duplicated).
+    public static func enable()
+}
+```
+
+### MetaphorRenderer extension — imperative facade
+
+```swift
+extension MetaphorRenderer {
+    /// The SyphonOutput of the registered Syphon plugin, or nil.
+    public var syphonOutput: SyphonOutput? { get }
+    /// Starts (or replaces) the Syphon server under `name`.
+    public func startSyphonServer(name: String)
+    /// Stops the Syphon server and removes the plugin.
+    public func stopSyphonServer()
+}
+```
+
+### SyphonOutput — the server wrapper
+
+```swift
+public final class SyphonOutput {
+    public init(device: MTLDevice, name: String)
+    public var serverName: String? { get }
+    public var isActive: Bool { get }
+    /// Publishes `texture` to connected clients. `region` nil = whole texture.
+    public func publish(texture: MTLTexture, commandBuffer: MTLCommandBuffer, region: NSRect? = nil, flipped: Bool = false)
+    /// Stops the current server and starts a new one under `name`.
+    public func rename(_ name: String)
+    public func stop()
+}
+```
+
+Published frames carry **premultiplied alpha** (metaphor ADR-0012); receivers must composite with premultiplied `over`.
+
+## Migration from metaphor ≤ 0.11
+
+| Before | After |
+|---|---|
+| `import metaphor` alone enabled Syphon | add the metaphor-syphon dependency + `import MetaphorSyphon` |
+| `SketchConfig(syphon: true)` | `SketchConfig(plugins: [.syphon()])` |
+| `SketchConfig(syphonName: "X")` | `SketchConfig(plugins: [.syphon(name: "X")])` |
+| `SketchWindowConfig(syphonName: "X")` | `SketchWindowConfig(plugins: [.syphon(name: "X")])` |
+
+The deprecated fields still work while this package is linked (removed in the next metaphor minor). Without the dependency, metaphor prints a one-line diagnostic pointing here and does not publish.
+
+## Behaviour notes
+
+- The server is created when the plugin attaches (sketch start) and destroyed on detach/shutdown; after `noLoop()` the last frame stays visible to clients.
+- Frames are published `flipped: true` by the plugin (the orientation Syphon clients expect from metaphor).
+- Not related to the metaphor-cli live viewer: `metaphor watch` transfers frames over its own frame IPC (metaphor ADR-0014); Syphon is only for external applications.

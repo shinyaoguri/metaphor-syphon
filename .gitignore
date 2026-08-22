@@ -1,0 +1,20 @@
+# SwiftPM
+.build/
+.swiftpm/
+DerivedData/
+
+# 秘密情報の置き場は gitignore 済みの .env に限る
+.env
+.env.*
+
+# macOS
+.DS_Store
+
+# Syphon.xcframework のローカルビルド（make setup）。無ければ Release asset を使う
+Frameworks/
+
+# 依存は from: で浮かせる（0.x の新しい metaphor と組み合わせて早く気付くため。nightly は main）
+Package.resolved
+
+# Python
+__pycache__/
