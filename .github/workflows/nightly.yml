@@ -43,7 +43,8 @@ jobs:
       - name: Point the metaphor dependency at main
         run: |
           set -euo pipefail
-          sed -i '' 's|\.package(url: "https://github.com/shinyaoguri/metaphor.git", from: "[^"]*")|.package(url: "https://github.com/shinyaoguri/metaphor.git", branch: "main")|' Package.swift
+          # `from: "x"` 形でも `"x"..<"y"` の範囲形でも、url の後ろを丸ごと差し替える。
+          sed -i '' 's|\.package(url: "https://github.com/shinyaoguri/metaphor.git", [^)]*)|.package(url: "https://github.com/shinyaoguri/metaphor.git", branch: "main")|' Package.swift
           grep -n 'metaphor.git", branch: "main"' Package.swift
       - name: Build against metaphor main (warnings as errors)
         run: swift build -Xswiftc -warnings-as-errors

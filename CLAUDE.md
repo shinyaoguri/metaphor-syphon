@@ -50,7 +50,7 @@ make ci-check   # -Xswiftc -warnings-as-errors で build + test（push 前に通
 - **Syphon サーバーの生成には GPU が要る。** GitHub-hosted の macos-14 は Metal デバイスが無い（metaphor#332）ので、サーバー生成を伴う suite は `.enabled(if: MTLCreateSystemDefaultDevice() != nil)`。`build-and-test` は macos-26 で回す
 - **`MetaphorLog` は product に無い。** `metaphorWarning` 等は `import MetaphorCore` で届く（`@_exported`）
 - **binaryTarget の pin は release.yml が書き換える（self-pin）。** 手で url / checksum を触らない。過去の asset は消さない（SwiftPM は resolve のたびに取りに来る）。初回だけ metaphor v0.11.0 の asset を間借りしていた（同じ submodule コミット・同じ build-syphon.sh の成果物）
-- **metaphor への依存は `from: "0.12.0"`。** 本体 main との互換は `nightly.yml` が見る。本体の provider / plugin API が変わる PR は metaphor 側に起票する（このリポは本体の公開 API だけに依存する）
+- **metaphor への依存は `"0.12.0"..<"0.13.0"` と minor で上限を切っている。** `from:` にすると `< 1.0.0` になり、deprecated フィールドを消す本体 0.13.0（metaphor#1042）が出た瞬間に、`metaphor-syphon from: "0.1.0"` の利用者が 0.13.0 + この版に解決されてビルドが壊れる（SwiftPM は 0.x の minor を breaking と扱わない）。本体 minor ごとに上限を上げた版を出す（#3、docs/releasing.md）。読み取り窓が消えたら `from:` に戻してよい。本体 main との互換は `nightly.yml` が見る。本体の provider / plugin API が変わる PR は metaphor 側に起票する（このリポは本体の公開 API だけに依存する）
 - テストは Swift Testing（`@Suite` / `@Test`）。XCTest は使わない
 - ドキュメントの画像はリポジトリに置かず Gyazo へ上げて外部 URL で参照する
 
