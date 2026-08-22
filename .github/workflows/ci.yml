@@ -83,8 +83,12 @@ jobs:
       - name: Build Syphon.xcframework
         if: steps.cache-syphon.outputs.cache-hit != 'true'
         run: ./scripts/build-syphon.sh
-      - name: Build and test (CI strictness)
-        run: make ci-check
+      # 手元の `make ci-check` と同じ 2 行。Makefile 経由にしないのは、workflow を読むだけで
+      # 「テストが CI で回っている」と分かるようにするため（個人標準 tests-run-in-ci の判定もここを見る）。
+      - name: Build (warnings as errors)
+        run: swift build -Xswiftc -warnings-as-errors
+      - name: Test (warnings as errors)
+        run: swift test -Xswiftc -warnings-as-errors
 
   registration-matrix:
     runs-on: macos-26
