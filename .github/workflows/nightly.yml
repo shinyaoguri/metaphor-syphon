@@ -45,9 +45,10 @@ jobs:
           set -euo pipefail
           sed -i '' 's|\.package(url: "https://github.com/shinyaoguri/metaphor.git", from: "[^"]*")|.package(url: "https://github.com/shinyaoguri/metaphor.git", branch: "main")|' Package.swift
           grep -n 'metaphor.git", branch: "main"' Package.swift
-      - name: Build and test against metaphor main
-        id: build
-        run: make ci-check
+      - name: Build against metaphor main (warnings as errors)
+        run: swift build -Xswiftc -warnings-as-errors
+      - name: Test against metaphor main (warnings as errors)
+        run: swift test -Xswiftc -warnings-as-errors
       - name: Open or update a tracking issue on failure
         if: failure() && github.event_name == 'schedule'
         env:
