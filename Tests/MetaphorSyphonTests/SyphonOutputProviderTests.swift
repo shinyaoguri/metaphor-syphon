@@ -7,13 +7,8 @@ import Testing
 // Syphon の自動配線（名前解決と provider の判定）を固定する。
 // metaphor v0.11.0 の in-tree 版（Tests/metaphorTests/SyphonOutputProviderTests.swift）を
 // S0（metaphor#1039）で持ち出したもの。MetaphorCore の公開 API と MetaphorSyphon の
-// internal だけに依存する。
-//
-// 旧 `syphonName:` / `syphon:` を取る SketchConfig / SketchWindowConfig の init は
-// metaphor 0.12 で deprecated（次の minor で削除）。このパッケージは -warnings-as-errors で
-// テストするので、旧 init を使うテストは関数ごと `@available(*, deprecated)` にして警告を
-// 黙らせる（deprecated な宣言の中でだけ deprecated 参照が警告されない）。旧フィールドが
-// 本体から消える minor で、これらのテストも provider の読み取り窓ごと削除する。
+// internal だけに依存する。旧 `syphon:` / `syphonName:` を読む窓は本体 0.13 の削除に合わせて
+// 0.2.0 で外した（#6）ので、自動配線の入口は `METAPHOR_SYPHON_NAME` だけ。
 
 // MARK: - 名前解決
 
@@ -22,66 +17,19 @@ struct SyphonOutputNameResolutionTests {
 
     @Test("no output by default")
     func disabledByDefault() {
-        #expect(SyphonOutputProvider.resolveSyphonName(config: SketchConfig(), env: [:]) == nil)
+        #expect(SyphonOutputProvider.resolveSyphonName(env: [:]) == nil)
     }
 
     @Test("METAPHOR_SYPHON_NAME alone enables output")
     func envAloneEnables() {
-        #expect(SyphonOutputProvider.resolveSyphonName(
-            config: SketchConfig(title: "T"), env: ["METAPHOR_SYPHON_NAME": "FromEnv"]
-        ) == "FromEnv")
+        #expect(SyphonOutputProvider.resolveSyphonName(env: ["METAPHOR_SYPHON_NAME": "FromEnv"]) == "FromEnv")
     }
 
     @Test("empty METAPHOR_SYPHON_NAME is treated as unset")
     func emptyEnvIsUnset() {
-        #expect(SyphonOutputProvider.resolveSyphonName(
-            config: SketchConfig(), env: ["METAPHOR_SYPHON_NAME": ""]
-        ) == nil)
+        #expect(SyphonOutputProvider.resolveSyphonName(env: ["METAPHOR_SYPHON_NAME": ""]) == nil)
     }
 
-    @available(*, deprecated)
-    @Test("precedence: env > syphonName > (syphon ? title : nil)")
-    func precedence() {
-        let config = SketchConfig(title: "MyTitle", syphonName: "FromConfig", syphon: true)
-
-        // 1 段目: 環境変数が最優先。
-        #expect(SyphonOutputProvider.resolveSyphonName(
-            config: config, env: ["METAPHOR_SYPHON_NAME": "FromEnv"]
-        ) == "FromEnv")
-
-        // 2 段目: 環境変数が無ければ config.syphonName。
-        #expect(SyphonOutputProvider.resolveSyphonName(config: config, env: [:]) == "FromConfig")
-
-        // 3 段目: syphonName も無ければ syphon フラグ次第で title。
-        #expect(SyphonOutputProvider.resolveSyphonName(
-            config: SketchConfig(title: "MyTitle", syphon: true), env: [:]
-        ) == "MyTitle")
-    }
-
-    @available(*, deprecated)
-    @Test("syphonName alone enables output")
-    func syphonNameImpliesEnabled() {
-        #expect(SyphonOutputProvider.resolveSyphonName(
-            config: SketchConfig(syphonName: "Named", syphon: false), env: [:]
-        ) == "Named")
-    }
-
-    @available(*, deprecated)
-    @Test("empty METAPHOR_SYPHON_NAME falls through to syphonName")
-    func emptyEnvFallsThrough() {
-        #expect(SyphonOutputProvider.resolveSyphonName(
-            config: SketchConfig(syphonName: "FromConfig"),
-            env: ["METAPHOR_SYPHON_NAME": ""]
-        ) == "FromConfig")
-    }
-
-    @available(*, deprecated)
-    @Test("windowed path yields nil when nothing asks for output")
-    func windowedWithoutOutputIsNil() {
-        #expect(SyphonOutputProvider.resolveSyphonName(
-            config: SketchConfig(title: "MyTitle", syphon: false), env: [:]
-        ) == nil)
-    }
 }
 
 // MARK: - provider の判定
@@ -111,19 +59,6 @@ struct SyphonOutputProviderTests {
                 "cli の --syphon が注入する METAPHOR_SYPHON_NAME は従来どおり効く")
     }
 
-    @available(*, deprecated)
-    @Test("プライマリ: 旧 syphonName / syphon フラグも移行期間中は読む")
-    func primaryScopeLegacyFields() {
-        func name(_ config: SketchConfig, env: [String: String] = [:]) -> String? {
-            SyphonOutputProvider.resolveOutputName(context: MetaphorOutputContext(
-                scope: .primary(config), environment: env, isHeadless: false
-            ))
-        }
-        #expect(name(SketchConfig(title: "T", syphon: true)) == "T")
-        #expect(name(SketchConfig(title: "T", syphonName: "N")) == "N")
-        #expect(name(SketchConfig(title: "T", syphonName: "N"), env: ["METAPHOR_SYPHON_NAME": "E"]) == "E")
-    }
-
     @Test("セカンダリウィンドウ: env / ヘッドレスでは publish しない")
     func windowScopeWithoutLegacyFields() {
         func name(_ config: SketchWindowConfig, env: [String: String] = [:], headless: Bool = false) -> String? {
@@ -134,15 +69,6 @@ struct SyphonOutputProviderTests {
         #expect(name(SketchWindowConfig()) == nil)
         #expect(name(SketchWindowConfig(), env: ["METAPHOR_SYPHON_NAME": "E"]) == nil)
         #expect(name(SketchWindowConfig(), headless: true) == nil, "セカンダリはヘッドレスでも暗黙に publish しない（従来どおり）")
-    }
-
-    @available(*, deprecated)
-    @Test("セカンダリウィンドウ: 旧 syphonName だけを見る")
-    func windowScopeLegacyField() {
-        let name = SyphonOutputProvider.resolveOutputName(context: MetaphorOutputContext(
-            scope: .window(SketchWindowConfig(syphonName: "W")), environment: [:], isHeadless: false
-        ))
-        #expect(name == "W")
     }
 
     @Test("makeOutput は名前が決まるときだけ SyphonPlugin を返す")

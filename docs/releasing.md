@@ -31,7 +31,7 @@ gh workflow run release.yml -f bump=minor
 
 - Syphon-Framework の更新・挙動が変わる修正: **minor**（0.x の間は breaking も minor — 本体の [ADR-0009](https://github.com/shinyaoguri/metaphor/blob/main/docs/adr/0009-unfreeze-api-until-1-0.md) に倣う）
 - ドキュメント・CI だけ: リリースしない
-- 本体 metaphor の minor が出たとき: `Package.swift` の依存は `"0.12.0"..<"0.13.0"` のように**上限を minor で切っている**ので、本体の minor ごとに追随リリースが要る（#3）。API が変わっていなければ上限を上げるだけ → **patch**、provider / plugin API に追随したら **minor**（下限も上げる）。本体の deprecated フィールドを読む窓（`SyphonOutputProvider.swift` の `LegacySyphonFields`）を消す版からは `from:` に戻してよい
+- 本体 metaphor の minor が provider / plugin API を変えたとき: 追随の PR → **minor**。`from:` の下限も上げる。（0.1.x だけは本体の deprecated フィールドを読んでいたため `"0.12.0"..<"0.13.0"` と上限を切り、本体 minor ごとの追随リリースを要した — #3。0.2.0 で `from:` に戻している）
 
 ## 失敗したとき
 
