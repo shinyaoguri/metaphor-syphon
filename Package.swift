@@ -46,14 +46,11 @@ let package = Package(
         .library(name: "MetaphorSyphon", targets: ["MetaphorSyphon"]),
     ],
     dependencies: [
-        // Only the Core product is used. The upper bound is deliberate: while this package
-        // still reads the deprecated `SketchConfig.syphon` / `syphonName` /
-        // `SketchWindowConfig.syphonName` (the migration window, see SyphonOutputProvider.swift),
-        // a metaphor minor that removes them (metaphor#1042) must not be picked up by
-        // consumers that resolve `from:` ranges — SwiftPM does not treat 0.x minors as
-        // breaking. Each metaphor minor gets a metaphor-syphon release that raises this
-        // bound (docs/releasing.md); once the window is gone it can go back to `from:`.
-        .package(url: "https://github.com/shinyaoguri/metaphor.git", "0.12.0"..<"0.13.0"),
+        // Only the Core product is used: the provider / plugin API subset it relies on
+        // (MetaphorOutputProvider / PluginFactory(requirements:) / MetaphorOutputPlugin) is
+        // stable from metaphor 0.13.0 on, and nothing deprecated is read any more (the
+        // 0.12 migration window was dropped in 0.2.0, #6), so `from:` is safe within 0.x.
+        .package(url: "https://github.com/shinyaoguri/metaphor.git", from: "0.13.0"),
     ],
     targets: [
         syphonTarget,

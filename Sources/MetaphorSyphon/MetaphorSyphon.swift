@@ -25,9 +25,9 @@ import MetaphorCore
 /// The environment variable `METAPHOR_SYPHON_NAME` (set by `metaphor run --syphon` /
 /// `metaphor watch --syphon`) enables a server under that name without touching the sketch.
 ///
-/// Until metaphor removes them, the deprecated `SketchConfig.syphon` / `syphonName` and
-/// `SketchWindowConfig.syphonName` are still honoured by the provider, so existing sketches
-/// keep publishing once they link this package.
+/// metaphor 0.12's deprecated `SketchConfig.syphon` / `syphonName` and
+/// `SketchWindowConfig.syphonName` were removed in metaphor 0.13; metaphor-syphon 0.1.x read
+/// them for the migration, 0.2.0 and later do not (migrate to `plugins: [.syphon(name:)]`).
 public enum MetaphorSyphon {
     /// このパッケージのリリース版（`release.yml` が毎リリースで書き換える）。
     ///

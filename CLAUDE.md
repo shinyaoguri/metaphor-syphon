@@ -44,13 +44,13 @@ make ci-check   # -Xswiftc -warnings-as-errors で build + test（push 前に通
 
 ## 非自明な注意
 
-- **本体の deprecated フィールドは protocol 要件経由で読む。** `SketchConfig.syphon` / `syphonName` / `SketchWindowConfig.syphonName` は 0.12 で deprecated。CI は `-warnings-as-errors` なので直接参照できず、`SyphonOutputProvider.swift` 末尾の `private protocol LegacySyphonFields` の witness（`@available(*, deprecated)`）越しに読む。テストで旧 init を使う関数も `@available(*, deprecated)` を付ける。本体がフィールドを削除する minor が出たら、この窓とテストごと消す（metaphor#1042 M6 と同時）
+- **自動配線の入口は `METAPHOR_SYPHON_NAME` だけ。** metaphor 0.12 の deprecated フィールド（`syphon` / `syphonName`）を読む窓は 0.1.x にあったが、本体 0.13 の削除（metaphor#1042）に合わせて 0.2.0 で外した（#6）。もし本体の deprecated API を一時的に読む必要が再び出たら、`-warnings-as-errors` を通す手は「`private protocol` の witness を `@available(*, deprecated)` にして存在型経由で読む」（0.1.x の `LegacySyphonFields`、git 履歴参照）
 - **`PluginFactory.syphon()` の名前は attach 時に解決する。** `PluginFactory` は config を知らないので、`SyphonPlugin.onAttach(sketch:)` で `sketch.config.title` を読む（`addPlugin(_:sketch:)` は `onAttach(sketch:)` → `onAttach(renderer:)` の順）。`SketchWindowConfig.plugins` 経由では Sketch が無く、プロセス名へ落ちる
 - **自動登録は C コンストラクタ。** `MetaphorSyphon.swift` の `cmetaphor_syphon_bootstrap_touch()` 呼び出しは、静的アーカイブ経由のリンク（Xcode プロジェクト等）で bootstrap.o が selective loading に落とされないためのアンカー。SwiftPM の実行体（object 直リンク）では無くても登録されるので消しても CI は赤くならないが、守っている経路が違うだけなので消さない。`registration-matrix` が見るのは「別パッケージの consumer から debug / release で登録されること」
 - **Syphon サーバーの生成には GPU が要る。** GitHub-hosted の macos-14 は Metal デバイスが無い（metaphor#332）ので、サーバー生成を伴う suite は `.enabled(if: MTLCreateSystemDefaultDevice() != nil)`。`build-and-test` は macos-26 で回す
 - **`MetaphorLog` は product に無い。** `metaphorWarning` 等は `import MetaphorCore` で届く（`@_exported`）
 - **binaryTarget の pin は release.yml が書き換える（self-pin）。** 手で url / checksum を触らない。過去の asset は消さない（SwiftPM は resolve のたびに取りに来る）。初回だけ metaphor v0.11.0 の asset を間借りしていた（同じ submodule コミット・同じ build-syphon.sh の成果物）
-- **metaphor への依存は `"0.12.0"..<"0.13.0"` と minor で上限を切っている。** `from:` にすると `< 1.0.0` になり、deprecated フィールドを消す本体 0.13.0（metaphor#1042）が出た瞬間に、`metaphor-syphon from: "0.1.0"` の利用者が 0.13.0 + この版に解決されてビルドが壊れる（SwiftPM は 0.x の minor を breaking と扱わない）。本体 minor ごとに上限を上げた版を出す（#3、docs/releasing.md）。読み取り窓が消えたら `from:` に戻してよい。本体 main との互換は `nightly.yml` が見る。本体の provider / plugin API が変わる PR は metaphor 側に起票する（このリポは本体の公開 API だけに依存する）
+- **metaphor への依存は `from: "0.13.0"`。** 0.1.x は deprecated フィールドを読んでいたので `"0.12.0"..<"0.13.0"` と上限を切っていた（#3。`from:` = `< 1.0.0` なので、本体の削除 minor が出た瞬間に利用者の解決が壊れるため）。本体の deprecated API に依存しない限り `from:` でよい。本体 main との互換は `nightly.yml` が見る。本体の provider / plugin API が変わる PR は metaphor 側に起票する（このリポは本体の公開 API だけに依存する）
 - テストは Swift Testing（`@Suite` / `@Test`）。XCTest は使わない
 - ドキュメントの画像はリポジトリに置かず Gyazo へ上げて外部 URL で参照する
 

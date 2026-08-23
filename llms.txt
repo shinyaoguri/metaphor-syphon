@@ -1,6 +1,6 @@
 # metaphor-syphon
 
-> Syphon output for [metaphor](https://github.com/shinyaoguri/metaphor) sketches, as a separate SwiftPM package. Publishes the sketch's final frame as a Syphon server (MadMapper / Resolume / VDMX / TouchDesigner read it). metaphor ≥ 0.12.0, macOS 14+, Apple Silicon, Swift 5.10+.
+> Syphon output for [metaphor](https://github.com/shinyaoguri/metaphor) sketches, as a separate SwiftPM package. Publishes the sketch's final frame as a Syphon server (MadMapper / Resolume / VDMX / TouchDesigner read it). metaphor ≥ 0.13.0 (use metaphor-syphon 0.1.x with metaphor 0.12.x), macOS 14+, Apple Silicon, Swift 5.10+.
 
 This file is the AI-facing API reference for the package (metaphor's own `llms.txt` covers the core API). The shapes below are the whole public surface; the package is intentionally small.
 
@@ -9,8 +9,8 @@ This file is the AI-facing API reference for the package (metaphor's own `llms.t
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/shinyaoguri/metaphor.git", from: "0.12.0"),
-    .package(url: "https://github.com/shinyaoguri/metaphor-syphon.git", from: "0.1.1"),
+    .package(url: "https://github.com/shinyaoguri/metaphor.git", from: "0.13.0"),
+    .package(url: "https://github.com/shinyaoguri/metaphor-syphon.git", from: "0.2.0"),
 ],
 targets: [
     .executableTarget(
@@ -56,7 +56,7 @@ Use it in `SketchConfig(plugins:)` for the primary sketch and in `SketchWindowCo
 
 Any sketch that links `MetaphorSyphon` publishes under `$METAPHOR_SYPHON_NAME` when the variable is set and non-empty (`metaphor run --syphon[=name]` / `metaphor watch --syphon[=name]` set it for the child process). It is independent of `.syphon(name:)`: declaring both gives two servers.
 
-Precedence for the automatic (provider) server: `METAPHOR_SYPHON_NAME` > deprecated `SketchConfig.syphonName` > (deprecated `SketchConfig.syphon == true` ? `SketchConfig.title` : none). Secondary windows only honour the deprecated `SketchWindowConfig.syphonName`. Headless runs (`METAPHOR_VIEWER=1`) never publish implicitly.
+The automatic (provider) server is driven by `METAPHOR_SYPHON_NAME` only (empty = unset); it applies to the primary sketch, not to secondary windows. Headless runs (`METAPHOR_VIEWER=1`) never publish implicitly.
 
 ### MetaphorSyphon — module facade
 
@@ -109,7 +109,7 @@ Published frames carry **premultiplied alpha** (metaphor ADR-0012); receivers mu
 | `SketchConfig(syphonName: "X")` | `SketchConfig(plugins: [.syphon(name: "X")])` |
 | `SketchWindowConfig(syphonName: "X")` | `SketchWindowConfig(plugins: [.syphon(name: "X")])` |
 
-The deprecated fields still work while this package is linked (removed in the next metaphor minor). Without the dependency, metaphor prints a one-line diagnostic pointing here and does not publish.
+The old fields were removed in metaphor 0.13; metaphor-syphon 0.1.x (for metaphor 0.12.x) still read them, 0.2.0+ does not. Without the dependency, `METAPHOR_SYPHON_NAME` makes metaphor print a one-line diagnostic pointing here and nothing is published.
 
 ## Behaviour notes
 

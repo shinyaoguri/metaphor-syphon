@@ -11,8 +11,8 @@ metaphor 0.12 で本体から分離されました（[ADR-0014](https://github.c
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/shinyaoguri/metaphor.git", from: "0.12.0"),
-    .package(url: "https://github.com/shinyaoguri/metaphor-syphon.git", from: "0.1.1"),
+    .package(url: "https://github.com/shinyaoguri/metaphor.git", from: "0.13.0"),
+    .package(url: "https://github.com/shinyaoguri/metaphor-syphon.git", from: "0.2.0"),
 ],
 targets: [
     .executableTarget(
@@ -58,7 +58,7 @@ METAPHOR_SYPHON_NAME="Main Out" swift run
 
 ### 0.11 以前からの移行
 
-metaphor 0.12 で `SketchConfig` / `SketchWindowConfig` の Syphon フィールドは deprecated になり、次の minor で削除されます。このパッケージをリンクしていれば**移行期間中は旧フィールドも従来どおり効きます**が、警告が出るうちに書き換えてください。
+metaphor 0.12 で `SketchConfig` / `SketchWindowConfig` の Syphon フィールドは deprecated になり、**0.13 で削除**されました。metaphor-syphon 0.1.x（metaphor 0.12.x 向け）は移行期間として旧フィールドも読んでいましたが、0.2.0 以降（metaphor 0.13 以降）は `.syphon(name:)` と `METAPHOR_SYPHON_NAME` だけです。
 
 | 0.11 まで | 0.12 から |
 |---|---|
@@ -69,13 +69,13 @@ metaphor 0.12 で `SketchConfig` / `SketchWindowConfig` の Syphon フィール�
 | `METAPHOR_SYPHON_NAME` | 変更なし（リンクしていれば効く） |
 | `renderer.startSyphonServer(name:)` / `stopSyphonServer()` / `syphonOutput` | 変更なし（`MetaphorRenderer` の拡張としてこのパッケージが提供） |
 
-依存を足さずに `syphon:` / `syphonName:` / `METAPHOR_SYPHON_NAME` を使うと、本体が起動時に `metaphor-syphon` を足すよう案内する診断を 1 行出します（publish はされません）。
+依存を足さずに `METAPHOR_SYPHON_NAME` で出そうとすると、本体が起動時に `metaphor-syphon` を足すよう案内する診断を 1 行出します（publish はされません）。
 
 ## 要件
 
 - macOS 14.0+ / Apple Silicon（metaphor と同じ）
 - Swift 5.10+（Xcode 15.4+）
-- metaphor **0.12.x**（`Package.swift` は `"0.12.0"..<"0.13.0"` で上限を切っています。本体の minor が出るたびに metaphor-syphon も追随リリースして上限を上げます — 旧 `syphonName:` 等を読む移行期間が終わる本体 0.13 以降は `from:` に戻す予定）
+- metaphor **0.13.0 以上**（`.package(..., from: "0.13.0")`。metaphor 0.12.x には metaphor-syphon 0.1.x を）
 
 Syphon.framework はこのリポジトリの Release に `Syphon.xcframework.zip` として添付され、`Package.swift` の `binaryTarget` がそれを指します。SwiftPM が `Package.swift` の checksum と照合するので、手で取ってくるものはありません。
 
