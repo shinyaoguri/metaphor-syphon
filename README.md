@@ -46,6 +46,22 @@ final class MySketch: Sketch {
 - Syphon を宣言したスケッチは、ウィンドウが隠れても publish が止まらないよう**レンダーループが自動的にタイマー駆動**になります（`renderLoopMode: .displayLink` のままで OK）。
 - サーバーはスケッチ起動時に立ち、`noLoop()` で止めても最後のフレームが残ります（MadMapper 側で消えない）。
 
+### VSCode で補完が効かないとき
+
+このパッケージを依存に足すと、**VSCode で `MetaphorSyphon` の補完・hover・定義ジャンプが効かなくなります**（診断に `No such module 'MetaphorSyphon'` が出ます）。ビルドと実行は正常で、壊れるのはエディタ体験だけです。metaphor 本体の API は補完が出たままなので気づきにくい症状です。
+
+原因は上流のツールチェーン側にあります。sourcekit-lsp の背景インデックスが走らせる `swift build --experimental-prepare-for-indexing` が binaryTarget の framework をコピーせず、`MetaphorSyphon` のコンパイルが `no such module 'Syphon'` で落ちるためです（[swift-package-manager#9567](https://github.com/swiftlang/swift-package-manager/issues/9567)。Swift Build バックエンドでは修正済みですが、sourcekit-lsp は背景インデックスにだけ native を使い続けています）。metaphor 本体が同じ問題を踏んでいた [metaphor#578](https://github.com/shinyaoguri/metaphor/issues/578) と同一機序で、xcframework がこのパッケージへ移った結果、依存に足した人が踏む形になりました。
+
+スケッチ側に `.sourcekit-lsp/config.json` を置くと直ります。
+
+```json
+{ "swiftPM": { "buildSystem": "swiftbuild", "scratchPath": ".build/index-build" } }
+```
+
+置いて VSCode を開き直せば、`.syphon()` の補完も `SyphonOutput` の定義ジャンプも通ります。`{ "backgroundIndexing": false }` でも補完自体は戻りますが、背景インデックスが止まるので一度 `swift build` するまで何も出ません。
+
+[metaphor-cli](https://github.com/shinyaoguri/metaphor-cli) の `metaphor doctor` は、この設定が無いスケッチで `[warn] Editor cannot resolve plugin symbols` と名指しします。上流が背景インデックスを Swift Build へ移せば、この設定は不要になります。
+
 ### コードを変えずに publish する: `METAPHOR_SYPHON_NAME`
 
 このパッケージをリンクしているスケッチは、環境変数 `METAPHOR_SYPHON_NAME=<名前>` だけでその名前のサーバーを立てます。[metaphor-cli](https://github.com/shinyaoguri/metaphor-cli) の `metaphor run --syphon[=name]` / `metaphor watch --syphon[=name]` はこれを子プロセスへ渡します。
