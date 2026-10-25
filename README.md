@@ -1,5 +1,9 @@
 # metaphor-syphon
 
+> [!IMPORTANT]
+> **metaphor-syphon の開発は終了しました。後継パッケージ [mokume-syphon](https://github.com/mokume-metal/mokume-syphon) に引き継いでいます。**（本体 metaphor も後継 [mokume](https://github.com/mokume-metal/mokume) に引き継がれ、開発を終了しています。）
+> 本リポジトリは参照用にアーカイブしていますが、今後の機能追加・不具合修正・Issue / PR への対応は行いません。新しく使い始める場合や移行する場合は mokume-syphon をご利用ください。
+
 [metaphor](https://github.com/shinyaoguri/metaphor) のスケッチを **Syphon サーバーとして publish** する公式プラグイン。MadMapper / Resolume / VDMX / TouchDesigner など Syphon クライアントから、スケッチの最終フレームをそのまま受け取れます。
 
 metaphor 0.12 で本体から分離されました（[ADR-0014](https://github.com/shinyaoguri/metaphor/blob/main/docs/adr/0014-viewer-frame-ipc-and-syphon-plugin.md) / [metaphor#792](https://github.com/shinyaoguri/metaphor/issues/792)）。Syphon.framework（xcframework）を抱えるのはこのパッケージだけで、**Syphon を使わないスケッチはダウンロードもリンクもしません**。
